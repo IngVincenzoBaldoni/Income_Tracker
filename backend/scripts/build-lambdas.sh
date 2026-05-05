@@ -12,7 +12,7 @@ FUNCTIONS_DIR="$BACKEND_DIR/functions"
 # ── 1. Install production dependencies ──────────────────────────────────────
 echo "Installing backend dependencies..."
 cd "$BACKEND_DIR"
-npm ci --omit=dev
+npm install --omit=dev --prefer-offline 2>/dev/null || npm install --omit=dev
 echo "  node_modules ready ($(du -sh node_modules 2>/dev/null | cut -f1))"
 
 mkdir -p "$BUILD_DIR"

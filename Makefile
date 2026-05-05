@@ -4,7 +4,8 @@
         frontend-install frontend-dev frontend-build
 
 LAMBDA_NAMES := auth-signup auth-login auth-confirm auth-change-password \
-                user-get jobs-create jobs-list jobs-update jobs-delete dashboard-metrics
+                user-get jobs-create jobs-list jobs-update jobs-delete \
+                dashboard-metrics db-migrate
 
 # ─── Terraform ────────────────────────────────────────────────────────────────
 
@@ -79,6 +80,17 @@ logs-login:
 
 logs-dashboard:
 	aws logs tail /aws/lambda/career-tracker-dev-dashboard-metrics --follow --region eu-west-1
+
+logs-migrate:
+	aws logs tail /aws/lambda/career-tracker-dev-db-migrate --follow --region eu-west-1
+
+migrate:
+	aws lambda invoke \
+		--function-name career-tracker-dev-db-migrate \
+		--region eu-west-1 \
+		--log-type Tail \
+		--cli-read-timeout 60 \
+		/tmp/migrate_output.json && cat /tmp/migrate_output.json
 
 # ─── Frontend ─────────────────────────────────────────────────────────────────
 

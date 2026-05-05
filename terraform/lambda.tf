@@ -10,6 +10,7 @@ locals {
     "jobs-update"          = { handler = "index.handler", description = "Update job entry" }
     "jobs-delete"          = { handler = "index.handler", description = "Delete job entry" }
     "dashboard-metrics"    = { handler = "index.handler", description = "Dashboard metrics" }
+    "db-migrate"           = { handler = "index.handler", description = "One-time DB schema migration" }
   }
 
   lambda_env_vars = {

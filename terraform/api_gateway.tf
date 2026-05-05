@@ -9,14 +9,14 @@ resource "aws_api_gateway_rest_api" "main" {
   tags = local.common_tags
 }
 
-# ─── Helper locals for DRY Lambda integration ────────────────────────────────
+# ─── Helper locals ────────────────────────────────────────────────────────────
 locals {
   api_id            = aws_api_gateway_rest_api.main.id
   api_root_id       = aws_api_gateway_rest_api.main.root_resource_id
   api_execution_arn = aws_api_gateway_rest_api.main.execution_arn
 }
 
-# ─── /auth resource ──────────────────────────────────────────────────────────
+# ─── Resources ────────────────────────────────────────────────────────────────
 resource "aws_api_gateway_resource" "auth" {
   rest_api_id = local.api_id
   parent_id   = local.api_root_id
@@ -47,14 +47,12 @@ resource "aws_api_gateway_resource" "auth_password" {
   path_part   = "password"
 }
 
-# ─── /user resource ──────────────────────────────────────────────────────────
 resource "aws_api_gateway_resource" "user" {
   rest_api_id = local.api_id
   parent_id   = local.api_root_id
   path_part   = "user"
 }
 
-# ─── /jobs resource ──────────────────────────────────────────────────────────
 resource "aws_api_gateway_resource" "jobs" {
   rest_api_id = local.api_id
   parent_id   = local.api_root_id
@@ -67,7 +65,6 @@ resource "aws_api_gateway_resource" "jobs_id" {
   path_part   = "{jobId}"
 }
 
-# ─── /dashboard resource ─────────────────────────────────────────────────────
 resource "aws_api_gateway_resource" "dashboard" {
   rest_api_id = local.api_id
   parent_id   = local.api_root_id
@@ -80,10 +77,7 @@ resource "aws_api_gateway_resource" "dashboard_metrics" {
   path_part   = "metrics"
 }
 
-# ─── Method + Integration module (inline, no sub-module) ─────────────────────
-# Each route: method → lambda integration → permission
-
-# POST /auth/signup
+# ─── Lambda routes ────────────────────────────────────────────────────────────
 module "route_auth_signup" {
   source            = "./modules/api_route"
   rest_api_id       = local.api_id
@@ -94,7 +88,6 @@ module "route_auth_signup" {
   function_name     = aws_lambda_function.functions["auth-signup"].function_name
 }
 
-# POST /auth/login
 module "route_auth_login" {
   source            = "./modules/api_route"
   rest_api_id       = local.api_id
@@ -105,7 +98,6 @@ module "route_auth_login" {
   function_name     = aws_lambda_function.functions["auth-login"].function_name
 }
 
-# POST /auth/confirm
 module "route_auth_confirm" {
   source            = "./modules/api_route"
   rest_api_id       = local.api_id
@@ -116,7 +108,6 @@ module "route_auth_confirm" {
   function_name     = aws_lambda_function.functions["auth-confirm"].function_name
 }
 
-# PUT /auth/password
 module "route_auth_password" {
   source            = "./modules/api_route"
   rest_api_id       = local.api_id
@@ -127,7 +118,6 @@ module "route_auth_password" {
   function_name     = aws_lambda_function.functions["auth-change-password"].function_name
 }
 
-# GET /user
 module "route_user_get" {
   source            = "./modules/api_route"
   rest_api_id       = local.api_id
@@ -138,7 +128,6 @@ module "route_user_get" {
   function_name     = aws_lambda_function.functions["user-get"].function_name
 }
 
-# POST /jobs
 module "route_jobs_create" {
   source            = "./modules/api_route"
   rest_api_id       = local.api_id
@@ -149,7 +138,6 @@ module "route_jobs_create" {
   function_name     = aws_lambda_function.functions["jobs-create"].function_name
 }
 
-# GET /jobs
 module "route_jobs_list" {
   source            = "./modules/api_route"
   rest_api_id       = local.api_id
@@ -160,7 +148,6 @@ module "route_jobs_list" {
   function_name     = aws_lambda_function.functions["jobs-list"].function_name
 }
 
-# PUT /jobs/{jobId}
 module "route_jobs_update" {
   source            = "./modules/api_route"
   rest_api_id       = local.api_id
@@ -171,7 +158,6 @@ module "route_jobs_update" {
   function_name     = aws_lambda_function.functions["jobs-update"].function_name
 }
 
-# DELETE /jobs/{jobId}
 module "route_jobs_delete" {
   source            = "./modules/api_route"
   rest_api_id       = local.api_id
@@ -182,7 +168,6 @@ module "route_jobs_delete" {
   function_name     = aws_lambda_function.functions["jobs-delete"].function_name
 }
 
-# GET /dashboard/metrics
 module "route_dashboard_metrics" {
   source            = "./modules/api_route"
   rest_api_id       = local.api_id
@@ -193,7 +178,103 @@ module "route_dashboard_metrics" {
   function_name     = aws_lambda_function.functions["dashboard-metrics"].function_name
 }
 
-# ─── Deployment ──────────────────────────────────────────────────────────────
+# ─── CORS OPTIONS — one per resource (not per method) ────────────────────────
+locals {
+  cors_resources = {
+    auth_signup        = aws_api_gateway_resource.auth_signup.id
+    auth_login         = aws_api_gateway_resource.auth_login.id
+    auth_confirm       = aws_api_gateway_resource.auth_confirm.id
+    auth_password      = aws_api_gateway_resource.auth_password.id
+    user               = aws_api_gateway_resource.user.id
+    jobs               = aws_api_gateway_resource.jobs.id
+    jobs_id            = aws_api_gateway_resource.jobs_id.id
+    dashboard_metrics  = aws_api_gateway_resource.dashboard_metrics.id
+  }
+}
+
+resource "aws_api_gateway_method" "cors_options" {
+  for_each = local.cors_resources
+
+  rest_api_id   = local.api_id
+  resource_id   = each.value
+  http_method   = "OPTIONS"
+  authorization = "NONE"
+}
+
+resource "aws_api_gateway_integration" "cors_options" {
+  for_each = local.cors_resources
+
+  rest_api_id = local.api_id
+  resource_id = each.value
+  http_method = aws_api_gateway_method.cors_options[each.key].http_method
+  type        = "MOCK"
+
+  request_templates = {
+    "application/json" = "{\"statusCode\": 200}"
+  }
+}
+
+resource "aws_api_gateway_method_response" "cors_options_200" {
+  for_each = local.cors_resources
+
+  rest_api_id = local.api_id
+  resource_id = each.value
+  http_method = aws_api_gateway_method.cors_options[each.key].http_method
+  status_code = "200"
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = true
+    "method.response.header.Access-Control-Allow-Methods" = true
+    "method.response.header.Access-Control-Allow-Origin"  = true
+  }
+
+  response_models = {
+    "application/json" = "Empty"
+  }
+}
+
+resource "aws_api_gateway_integration_response" "cors_options" {
+  for_each = local.cors_resources
+
+  rest_api_id = local.api_id
+  resource_id = each.value
+  http_method = aws_api_gateway_method.cors_options[each.key].http_method
+  status_code = "200"
+
+  response_parameters = {
+    "method.response.header.Access-Control-Allow-Headers" = "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+    "method.response.header.Access-Control-Allow-Methods" = "'GET,POST,PUT,DELETE,OPTIONS'"
+    "method.response.header.Access-Control-Allow-Origin"  = "'*'"
+  }
+
+  depends_on = [
+    aws_api_gateway_integration.cors_options,
+    aws_api_gateway_method_response.cors_options_200,
+  ]
+}
+
+# ─── CORS on Gateway-level error responses (4xx/5xx) ─────────────────────────
+resource "aws_api_gateway_gateway_response" "cors_4xx" {
+  rest_api_id   = local.api_id
+  response_type = "DEFAULT_4XX"
+
+  response_parameters = {
+    "gatewayresponse.header.Access-Control-Allow-Origin"  = "'*'"
+    "gatewayresponse.header.Access-Control-Allow-Headers" = "'Content-Type,Authorization'"
+  }
+}
+
+resource "aws_api_gateway_gateway_response" "cors_5xx" {
+  rest_api_id   = local.api_id
+  response_type = "DEFAULT_5XX"
+
+  response_parameters = {
+    "gatewayresponse.header.Access-Control-Allow-Origin"  = "'*'"
+    "gatewayresponse.header.Access-Control-Allow-Headers" = "'Content-Type,Authorization'"
+  }
+}
+
+# ─── Deployment ───────────────────────────────────────────────────────────────
 resource "aws_api_gateway_deployment" "main" {
   rest_api_id = local.api_id
 
@@ -220,6 +301,7 @@ resource "aws_api_gateway_deployment" "main" {
     module.route_jobs_update,
     module.route_jobs_delete,
     module.route_dashboard_metrics,
+    aws_api_gateway_integration_response.cors_options,
   ]
 }
 
@@ -232,5 +314,5 @@ resource "aws_api_gateway_stage" "dev" {
 }
 
 output "api_endpoint_url" {
-  value = "${aws_api_gateway_stage.dev.invoke_url}"
+  value = aws_api_gateway_stage.dev.invoke_url
 }

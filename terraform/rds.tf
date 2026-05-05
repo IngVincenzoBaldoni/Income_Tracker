@@ -63,7 +63,7 @@ resource "aws_security_group" "lambda" {
 resource "aws_db_instance" "main" {
   identifier     = "${local.name_prefix}-db"
   engine         = "postgres"
-  engine_version = "15.4"
+  engine_version = "16.6"
   instance_class = "db.t3.micro"
 
   allocated_storage     = 20
@@ -82,11 +82,10 @@ resource "aws_db_instance" "main" {
   skip_final_snapshot = true
   deletion_protection = false
 
-  backup_retention_period = 7
-  backup_window           = "03:00-04:00"
+  backup_retention_period = 0  # free tier does not allow automated backups > 0
   maintenance_window      = "Mon:04:00-Mon:05:00"
 
-  parameter_group_name = "default.postgres15"
+  parameter_group_name = "default.postgres16"
 
   tags = merge(local.common_tags, {
     Name = "${local.name_prefix}-db"
