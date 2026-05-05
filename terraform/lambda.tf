@@ -1,35 +1,32 @@
 locals {
   lambda_functions = {
-    "auth-signup"         = { handler = "index.handler", description = "User signup" }
-    "auth-login"          = { handler = "index.handler", description = "User login" }
-    "auth-confirm"        = { handler = "index.handler", description = "Confirm email" }
+    "auth-signup"          = { handler = "index.handler", description = "User signup" }
+    "auth-login"           = { handler = "index.handler", description = "User login" }
+    "auth-confirm"         = { handler = "index.handler", description = "Confirm email" }
     "auth-change-password" = { handler = "index.handler", description = "Change password" }
-    "user-get"            = { handler = "index.handler", description = "Get user info" }
-    "jobs-create"         = { handler = "index.handler", description = "Create job entry" }
-    "jobs-list"           = { handler = "index.handler", description = "List job entries" }
-    "jobs-update"         = { handler = "index.handler", description = "Update job entry" }
-    "jobs-delete"         = { handler = "index.handler", description = "Delete job entry" }
-    "dashboard-metrics"   = { handler = "index.handler", description = "Dashboard metrics" }
+    "user-get"             = { handler = "index.handler", description = "Get user info" }
+    "jobs-create"          = { handler = "index.handler", description = "Create job entry" }
+    "jobs-list"            = { handler = "index.handler", description = "List job entries" }
+    "jobs-update"          = { handler = "index.handler", description = "Update job entry" }
+    "jobs-delete"          = { handler = "index.handler", description = "Delete job entry" }
+    "dashboard-metrics"    = { handler = "index.handler", description = "Dashboard metrics" }
   }
 
   lambda_env_vars = {
-    DB_HOST               = aws_db_instance.main.address
-    DB_PORT               = tostring(aws_db_instance.main.port)
-    DB_USER               = var.db_username
-    DB_PASSWORD           = var.db_password
-    DB_NAME               = var.db_name
-    COGNITO_REGION        = var.region
-    COGNITO_USER_POOL_ID  = aws_cognito_user_pool.main.id
-    COGNITO_CLIENT_ID     = aws_cognito_user_pool_client.web.id
-    NODE_ENV              = var.environment
+    DB_HOST              = aws_db_instance.main.address
+    DB_PORT              = tostring(aws_db_instance.main.port)
+    DB_USER              = var.db_username
+    DB_PASSWORD          = var.db_password
+    DB_NAME              = var.db_name
+    COGNITO_REGION       = var.region
+    COGNITO_USER_POOL_ID = aws_cognito_user_pool.main.id
+    COGNITO_CLIENT_ID    = aws_cognito_user_pool_client.web.id
+    NODE_ENV             = var.environment
   }
-}
 
-data "archive_file" "lambda_placeholder" {
-  for_each    = local.lambda_functions
-  type        = "zip"
-  source_dir  = "${path.module}/../backend/functions/${each.key}"
-  output_path = "${path.module}/.lambda_zips/${each.key}.zip"
+  # Path to the pre-built zip directory produced by backend/scripts/build-lambdas.sh.
+  # Run `make build-lambdas` (or `make plan` which calls it automatically) before apply.
+  lambda_build_dir = "${path.module}/../backend/.lambda_build"
 }
 
 resource "aws_lambda_function" "functions" {
@@ -43,8 +40,10 @@ resource "aws_lambda_function" "functions" {
   timeout       = 30
   memory_size   = 256
 
-  filename         = data.archive_file.lambda_placeholder[each.key].output_path
-  source_code_hash = data.archive_file.lambda_placeholder[each.key].output_base64sha256
+  # Zips are produced by backend/scripts/build-lambdas.sh.
+  # Each zip contains index.js + node_modules (pg, aws-sdk) at the root.
+  filename         = "${local.lambda_build_dir}/${each.key}.zip"
+  source_code_hash = filebase64sha256("${local.lambda_build_dir}/${each.key}.zip")
 
   vpc_config {
     subnet_ids         = data.aws_subnets.default.ids
