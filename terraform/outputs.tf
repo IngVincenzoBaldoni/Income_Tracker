@@ -37,3 +37,18 @@ output "lambda_exec_role_arn" {
   description = "Lambda execution role ARN"
   value       = aws_iam_role.lambda_exec.arn
 }
+
+output "cloudfront_url" {
+  description = "CloudFront distribution URL (frontend)"
+  value       = "https://${aws_cloudfront_distribution.frontend.domain_name}"
+}
+
+output "cloudfront_distribution_id" {
+  description = "CloudFront distribution ID"
+  value       = aws_cloudfront_distribution.frontend.id
+}
+
+output "frontend_s3_bucket" {
+  description = "S3 bucket name for frontend assets"
+  value       = aws_s3_bucket.frontend.bucket
+}

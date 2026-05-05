@@ -33,7 +33,7 @@ echo "  Date: $(date '+%Y-%m-%d %H:%M:%S')"
 hr
 
 # ── Step 1: Prerequisites ─────────────────────────────────────────────────────
-step "Step 1/7 — Prerequisites check"
+step "Step 1/8 — Prerequisites check"
 
 ERRORS=0
 
@@ -84,7 +84,7 @@ export AWS_DEFAULT_REGION="${AWS_DEFAULT_REGION:-eu-west-1}"
 info "AWS region: $AWS_DEFAULT_REGION"
 
 # ── Step 2: terraform.tfvars ──────────────────────────────────────────────────
-step "Step 2/7 — Terraform variables"
+step "Step 2/8 — Terraform variables"
 
 TFVARS="$ROOT_DIR/terraform/terraform.tfvars"
 
@@ -111,7 +111,7 @@ fi
 ok "terraform.tfvars found and configured."
 
 # ── Step 3: Terraform init ────────────────────────────────────────────────────
-step "Step 3/7 — Terraform init + placeholder zips"
+step "Step 3/8 — Terraform init + placeholder zips"
 
 cd "$ROOT_DIR"
 
@@ -135,14 +135,14 @@ terraform init -input=false
 ok "Terraform initialized."
 
 # ── Step 4: Build Lambda functions ────────────────────────────────────────────
-step "Step 4/7 — Build Lambda functions"
+step "Step 4/8 — Build Lambda functions"
 
 cd "$ROOT_DIR"
 chmod +x backend/scripts/build-lambdas.sh
 bash backend/scripts/build-lambdas.sh
 
 # ── Step 5: Terraform plan ────────────────────────────────────────────────────
-step "Step 5/7 — Terraform plan"
+step "Step 5/8 — Terraform plan"
 
 cd "$ROOT_DIR/terraform"
 terraform plan -input=false -out=tfplan
@@ -165,7 +165,7 @@ else
 fi
 
 # ── Step 6: Terraform apply ───────────────────────────────────────────────────
-step "Step 6/7 — Terraform apply  (this takes ~10-15 min)"
+step "Step 6/8 — Terraform apply  (this takes ~10-15 min)"
 
 terraform apply -input=false tfplan
 
@@ -189,7 +189,7 @@ echo "  DB name:         $DB_NAME"
 echo "  Region:          $REGION"
 
 # ── Step 7: Apply database schema via Lambda ──────────────────────────────────
-step "Step 7/7 — Apply database schema (via Lambda)"
+step "Step 7/8 — Apply database schema (via Lambda)"
 
 cd "$ROOT_DIR"
 MIGRATE_FN="career-tracker-dev-db-migrate"
@@ -214,43 +214,80 @@ else
   warn "If this is the first deploy, check Lambda logs: make logs-migrate"
 fi
 
-# ── Write frontend/.env.local ─────────────────────────────────────────────────
+# ── Write frontend/.env.local (always overwrite with latest terraform outputs) ─
 hr
 ENV_FILE="$ROOT_DIR/frontend/.env.local"
 
-if [ ! -f "$ENV_FILE" ]; then
-  info "Writing frontend/.env.local..."
-  cat > "$ENV_FILE" <<EOF
+info "Writing frontend/.env.local..."
+cat > "$ENV_FILE" <<EOF
 NEXT_PUBLIC_API_URL=$API_URL
 NEXT_PUBLIC_COGNITO_USER_POOL_ID=$POOL_ID
 NEXT_PUBLIC_COGNITO_CLIENT_ID=$CLIENT_ID
 NEXT_PUBLIC_COGNITO_REGION=${REGION:-eu-west-1}
 EOF
-  ok "frontend/.env.local written automatically."
-else
-  warn "frontend/.env.local already exists — update it manually if needed:"
-  echo ""
-  echo "  NEXT_PUBLIC_API_URL=$API_URL"
-  echo "  NEXT_PUBLIC_COGNITO_USER_POOL_ID=$POOL_ID"
-  echo "  NEXT_PUBLIC_COGNITO_CLIENT_ID=$CLIENT_ID"
-  echo "  NEXT_PUBLIC_COGNITO_REGION=${REGION:-eu-west-1}"
+ok "frontend/.env.local written."
+
+# ── Step 8: Build and deploy frontend to S3 + CloudFront ─────────────────────
+step "Step 8/8 — Build frontend + deploy to S3 + CloudFront"
+
+cd "$ROOT_DIR/terraform"
+S3_BUCKET=$(terraform output -raw frontend_s3_bucket     2>/dev/null || echo "")
+CF_DIST_ID=$(terraform output -raw cloudfront_distribution_id 2>/dev/null || echo "")
+CF_URL=$(terraform output -raw cloudfront_url             2>/dev/null || echo "")
+
+if [ -z "$S3_BUCKET" ] || [ -z "$CF_DIST_ID" ]; then
+  fail "Could not read S3 bucket / CloudFront outputs from Terraform."
+  exit 1
 fi
+
+info "S3 bucket:     $S3_BUCKET"
+info "CloudFront ID: $CF_DIST_ID"
+
+# Build Next.js static export
+cd "$ROOT_DIR/frontend"
+info "Installing frontend dependencies..."
+npm install --prefer-offline --no-audit --no-fund
+
+info "Building Next.js static export (next build)..."
+npm run build
+
+# Sync out/ to S3
+info "Syncing static assets to s3://$S3_BUCKET ..."
+aws s3 sync out/ "s3://$S3_BUCKET" \
+  --delete \
+  --region "$AWS_DEFAULT_REGION" \
+  --cache-control "public, max-age=31536000, immutable" \
+  --exclude "*.html" \
+  --exclude "*.json"
+
+# HTML + JSON files: short cache so re-deploys take effect quickly
+aws s3 sync out/ "s3://$S3_BUCKET" \
+  --delete \
+  --region "$AWS_DEFAULT_REGION" \
+  --cache-control "public, max-age=0, must-revalidate" \
+  --include "*.html" \
+  --include "*.json"
+
+ok "Files synced to S3."
+
+# Invalidate CloudFront cache
+info "Invalidating CloudFront cache (distribution: $CF_DIST_ID)..."
+aws cloudfront create-invalidation \
+  --distribution-id "$CF_DIST_ID" \
+  --paths "/*" \
+  --output text \
+  --query 'Invalidation.Id' | xargs -I{} echo "  Invalidation ID: {}"
+
+ok "CloudFront cache invalidated."
 
 # ── Done ─────────────────────────────────────────────────────────────────────
 echo ""
-echo -e "${BOLD}${GREEN}  ✅ Deploy complete! Your AWS infrastructure is live.${RESET}"
+echo -e "${BOLD}${GREEN}  ✅ Deploy complete! Everything is live on AWS.${RESET}"
 echo ""
-echo -e "  ${BOLD}Next steps:${RESET}"
+echo -e "  ${BOLD}Frontend URL:${RESET}  $CF_URL"
+echo -e "  ${BOLD}API URL:${RESET}       $API_URL"
 echo ""
-echo "  1. Test locally:"
-echo "       make frontend-install && make frontend-dev"
-echo "       → http://localhost:3000"
-echo ""
-echo "  2. Deploy frontend to Vercel:"
-echo "       cd frontend && vercel --prod"
-echo "       (add the 4 env vars in Vercel Dashboard → Settings → Env Vars)"
-echo ""
-echo "  3. Monitor Lambda logs:"
+echo -e "  ${BOLD}Monitor Lambda logs:${RESET}"
 echo "       make logs-signup      make logs-dashboard"
 echo ""
 hr
