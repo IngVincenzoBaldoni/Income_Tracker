@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars and fill in values (never commit terraform.tfvars)
+region      = "eu-west-1"
+app_name    = "career-tracker"
+environment = "dev"
+db_username = "postgres"
+db_password = "CHANGE_ME_strong_password_123!"
+db_name     = "career_tracker"
